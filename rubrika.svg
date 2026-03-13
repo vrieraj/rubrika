@@ -1,0 +1,21 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Documento base -->
+  <rect x="18" y="8" width="72" height="92" rx="8" fill="#e8f4fd" stroke="#2c5f8a" stroke-width="3"/>
+  <!-- Esquina doblada -->
+  <path d="M72 8 L90 26 L72 26 Z" fill="#b8d9f0" stroke="#2c5f8a" stroke-width="2" stroke-linejoin="round"/>
+  <!-- Líneas de texto simuladas -->
+  <line x1="30" y1="40" x2="78" y2="40" stroke="#aac8e0" stroke-width="3" stroke-linecap="round"/>
+  <line x1="30" y1="52" x2="78" y2="52" stroke="#aac8e0" stroke-width="3" stroke-linecap="round"/>
+  <line x1="30" y1="64" x2="60" y2="64" stroke="#aac8e0" stroke-width="3" stroke-linecap="round"/>
+  <!-- Rúbrica dibujada (trazo azul marino) -->
+  <path d="M26 88 Q34 72 42 82 Q50 92 58 76 Q64 65 72 80"
+        fill="none" stroke="#1a3a6b" stroke-width="3.5"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Sello de validación -->
+  <circle cx="96" cy="96" r="28" fill="#1a3a6b"/>
+  <circle cx="96" cy="96" r="23" fill="none" stroke="#4a9fd4"
+          stroke-width="2" stroke-dasharray="4 3"/>
+  <!-- Check -->
+  <path d="M82 96 L91 105 L112 82" fill="none" stroke="white"
+        stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

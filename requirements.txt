@@ -1,0 +1,32 @@
+# rubrika — dependencias Python
+# Python >= 3.10 recomendado
+#
+# Instalación en entorno virtual:
+#   python -m venv .venv
+#   source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# En Arch/Manjaro las dependencias están disponibles como paquetes del sistema:
+#   Repos oficiales : python-pymupdf, python-python-pkcs11, python-pillow,
+#                     python-pyside6, python-asn1crypto, python-numpy
+#   AUR             : python-pyhanko (incluye python-pyhanko-certvalidator)
+
+# Interfaz gráfica nativa Qt/KDE
+PySide6>=6.6.0
+
+# Motor de firma PDF/PAdES
+pyhanko>=0.21.0
+pyhanko-certvalidator>=0.26.0
+
+# Comunicación con el DNIe vía PKCS#11
+python-pkcs11>=0.7.0
+
+# Parsing de certificados X.509 (nombre del firmante)
+asn1crypto>=1.5.0
+
+# Renderizado offline de páginas PDF como imágenes
+pymupdf>=1.23.0
+
+# Procesado de la rúbrica dibujada
+Pillow>=10.0.0
+numpy>=1.24.0

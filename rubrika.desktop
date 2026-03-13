@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=rubrika
+GenericName=Firma digital de PDF
+Comment=Firma PDFs con tu DNIe o certificado digital
+Exec=rubrika %f
+Icon=rubrika
+Terminal=false
+Categories=Office;Utility;
+MimeType=application/pdf;
+Keywords=firma;pdf;dnie;certificado;digital;sign;
+StartupNotify=true
+StartupWMClass=rubrika
