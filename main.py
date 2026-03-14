@@ -16,9 +16,9 @@ from PySide6.QtCore import (QPoint, QRect, QSize, QThread, Qt, Signal)
 from PySide6.QtGui import (QColor, QCursor, QPainter, QPen, QPixmap)
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QFileDialog,
-    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit,
     QMainWindow, QMessageBox, QPushButton, QRubberBand,
-    QScrollArea, QSizePolicy, QStatusBar, QVBoxLayout, QWidget,
+    QPlainTextEdit, QScrollArea, QSizePolicy, QSpinBox, QStatusBar, QVBoxLayout, QWidget,
 )
 
 import utils
@@ -49,54 +49,76 @@ class HiloFirma(QThread):
 # VISOR DE PÁGINA con rubber band
 # ─────────────────────────────────────────────────────────────────────────────
 
-class VisorPagina(QLabel):
+class VisorPagina(QWidget):
     """
-    QLabel que muestra una página PDF y permite dibujar
-    un rectángulo de selección con el ratón (rubber band nativo de Qt).
-    Emite rectSeleccionado con las coordenadas en píxeles del label.
+    Widget que muestra una página PDF y permite dibujar
+    un rectángulo de selección arrastrando el ratón.
+    Emite rectSeleccionado con las coordenadas en píxeles del widget.
+    No usa QScrollArea — gestiona sus propios eventos de ratón directamente.
     """
     rectSeleccionado = Signal(QRect)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
-        self.rubberband = QRubberBand(QRubberBand.Shape.Rectangle, self)
-        self._origen    = QPoint()
+        self.setMouseTracking(False)   # solo necesitamos eventos con botón pulsado
+        self._pixmap   = QPixmap()
+        self._rect_sel = None          # QRect seleccionado, None si no hay
+        self._origen   = QPoint()
         self._dibujando = False
+
+    def cargar_pixmap(self, pixmap: QPixmap):
+        self._pixmap = pixmap
+        self.setFixedSize(pixmap.size())
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        if not self._pixmap.isNull():
+            p.drawPixmap(0, 0, self._pixmap)
+        if self._rect_sel and not self._rect_sel.isEmpty():
+            # Rectángulo de selección: fondo semitransparente rojo + borde
+            p.setPen(QPen(QColor(220, 50, 50), 2, Qt.PenStyle.DashLine))
+            p.setBrush(QColor(220, 50, 50, 45))
+            p.drawRect(self._rect_sel)
+            # Etiqueta FIRMA
+            p.setPen(QColor(220, 50, 50))
+            p.drawText(self._rect_sel.topLeft() + QPoint(4, 14), 'FIRMA')
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._origen    = event.pos()
+            self._origen    = event.position().toPoint()
             self._dibujando = True
-            self.rubberband.setGeometry(QRect(self._origen, QSize()))
-            self.rubberband.show()
+            self._rect_sel  = QRect(self._origen, QSize())
+            self.update()
 
     def mouseMoveEvent(self, event):
         if self._dibujando:
-            self.rubberband.setGeometry(
-                QRect(self._origen, event.pos()).normalized()
-            )
+            self._rect_sel = QRect(
+                self._origen, event.position().toPoint()
+            ).normalized()
+            self.update()
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self._dibujando:
             self._dibujando = False
-            rect = QRect(self._origen, event.pos()).normalized()
+            rect = QRect(
+                self._origen, event.position().toPoint()
+            ).normalized()
             if rect.width() > 10 and rect.height() > 10:
+                self._rect_sel = rect
                 self.rectSeleccionado.emit(rect)
             else:
-                self.rubberband.hide()
+                self._rect_sel = None
+            self.update()
 
     def limpiar(self):
-        self.rubberband.hide()
+        self._rect_sel = None
+        self.update()
 
-    def restaurar_rect(self, rect: QRect | None):
-        """Muestra un rect guardado al volver a una página."""
-        if rect:
-            self.rubberband.setGeometry(rect)
-            self.rubberband.show()
-        else:
-            self.rubberband.hide()
+    def restaurar_rect(self, rect):
+        self._rect_sel = rect
+        self.update()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -138,11 +160,11 @@ class CanvasRubrica(QWidget):
     # ── Ratón ─────────────────────────────────────────────────────────────────
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._trazo_actual = [event.pos()]
+            self._trazo_actual = [event.position().toPoint()]
 
     def mouseMoveEvent(self, event):
         if self._trazo_actual is not None:
-            self._trazo_actual.append(event.pos())
+            self._trazo_actual.append(event.position().toPoint())
             self.update()
 
     def mouseReleaseEvent(self, event):
@@ -369,54 +391,86 @@ class VentanaPrincipal(QMainWindow):
         self.area_visor = QWidget()
         self.area_visor.hide()
         lay_visor = QVBoxLayout(self.area_visor)
-        lay_visor.setContentsMargins(0, 0, 0, 0)
+        lay_visor.setContentsMargins(4, 4, 4, 4)
+        lay_visor.setSpacing(6)
 
-        # Info página + texto firma
+        # ── Barra superior: navegación + acciones ──
         self.lbl_pagina = QLabel()
-        self.lbl_texto  = QLabel()
-        self.lbl_texto.setStyleSheet('color: palette(mid);')
-        barra_info = QHBoxLayout()
-        barra_info.addWidget(self.lbl_pagina)
-        barra_info.addStretch()
-        barra_info.addWidget(self.lbl_texto)
+        self.lbl_pagina.setMinimumWidth(90)
 
-        # Scroll area con el visor
+        self.btn_anterior = QPushButton('◀')
+        self.btn_anterior.setFixedWidth(36)
+        self.btn_siguiente = QPushButton('▶')
+        self.btn_siguiente.setFixedWidth(36)
+
+        lbl_ir = QLabel('Ir a:')
+        self.spin_pagina = QSpinBox()
+        self.spin_pagina.setMinimum(1)
+        self.spin_pagina.setFixedWidth(64)
+        self.spin_pagina.valueChanged.connect(self._saltar_pagina)
+
+        self.btn_limpiar = QPushButton('Limpiar')
+        self.btn_todas   = QPushButton('Marcar todas')
+        self.btn_todas.setEnabled(False)
+
+        self.btn_anterior.clicked.connect(self.pagina_anterior)
+        self.btn_siguiente.clicked.connect(self.pagina_siguiente)
+        self.btn_limpiar.clicked.connect(self._limpiar_rect)
+        self.btn_todas.clicked.connect(self.confirmar_todas)
+
+        barra_nav = QHBoxLayout()
+        barra_nav.addWidget(self.lbl_pagina)
+        barra_nav.addWidget(self.btn_anterior)
+        barra_nav.addWidget(self.btn_siguiente)
+        barra_nav.addSpacing(8)
+        barra_nav.addWidget(lbl_ir)
+        barra_nav.addWidget(self.spin_pagina)
+        barra_nav.addSpacing(8)
+        barra_nav.addWidget(self.btn_limpiar)
+        barra_nav.addWidget(self.btn_todas)
+        barra_nav.addStretch()
+
+        # ── Texto de firma editable ──
+        lbl_texto_lbl = QLabel('Texto de firma:')
+        self.edit_texto = QPlainTextEdit()
+        self.edit_texto.setPlaceholderText('Documento firmado digitalmente por:\n[Nombre]\n[Fecha]')
+        self.edit_texto.setFixedHeight(68)
+        self.edit_texto.textChanged.connect(self._texto_cambiado)
+
+        barra_texto = QHBoxLayout()
+        barra_texto.addWidget(lbl_texto_lbl)
+        barra_texto.addWidget(self.edit_texto, stretch=1)
+
+        # ── Visor PDF (sin QScrollArea — gestiona sus propios eventos) ──
         self.visor = VisorPagina()
         self.visor.rectSeleccionado.connect(self._rect_seleccionado)
         scroll = QScrollArea()
         scroll.setWidget(self.visor)
         scroll.setWidgetResizable(False)
         scroll.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
-        # Botones de navegación
-        self.btn_anterior  = QPushButton('◀  Anterior')
-        self.btn_limpiar   = QPushButton('✕  Limpiar')
-        self.btn_omitir    = QPushButton('Omitir página')
-        self.btn_confirmar = QPushButton('✔  Confirmar y siguiente')
-        self.btn_todas     = QPushButton('⬛  Todas las páginas')
+        # ── Barra inferior: resumen páginas + Cancelar + Listo ──
+        self.lbl_resumen = QLabel('Sin páginas seleccionadas')
+        self.lbl_resumen.setStyleSheet('color: palette(mid);')
 
-        self.btn_confirmar.setEnabled(False)
-        self.btn_todas.setEnabled(False)
+        self.btn_cancelar = QPushButton('Cancelar')
+        self.btn_listo    = QPushButton('✔  Listo')
+        self.btn_listo.setDefault(True)
 
-        self.btn_anterior.clicked.connect(self.pagina_anterior)
-        self.btn_limpiar.clicked.connect(self._limpiar_rect)
-        self.btn_omitir.clicked.connect(self.omitir_pagina)
-        self.btn_confirmar.clicked.connect(self.confirmar_pagina)
-        self.btn_todas.clicked.connect(self.confirmar_todas)
+        self.btn_cancelar.clicked.connect(self._cancelar)
+        self.btn_listo.clicked.connect(self._listo)
 
-        barra_btns = QHBoxLayout()
-        for btn in (self.btn_anterior, self.btn_limpiar,
-                    self.btn_omitir, self.btn_confirmar, self.btn_todas):
-            barra_btns.addWidget(btn)
+        barra_inf = QHBoxLayout()
+        barra_inf.addWidget(self.lbl_resumen, stretch=1)
+        barra_inf.addWidget(self.btn_cancelar)
+        barra_inf.addWidget(self.btn_listo)
 
-        # Resumen páginas confirmadas
-        self.lbl_resumen = QLabel()
-        self.lbl_resumen.hide()
-
-        lay_visor.addLayout(barra_info)
+        lay_visor.addLayout(barra_nav)
+        lay_visor.addLayout(barra_texto)
         lay_visor.addWidget(scroll, stretch=1)
-        lay_visor.addLayout(barra_btns)
-        lay_visor.addWidget(self.lbl_resumen)
+        lay_visor.addLayout(barra_inf)
 
         self.layout_principal.addWidget(self.area_visor)
 
@@ -444,7 +498,9 @@ class VentanaPrincipal(QMainWindow):
 
             nombre   = args.nombre or 'Firmante'
             self.texto_firma = utils.texto_firma_default(nombre)
-            self.lbl_texto.setText(f'Texto: {self.texto_firma.splitlines()[0]}…')
+            self.edit_texto.blockSignals(True)
+            self.edit_texto.setPlainText(self.texto_firma)
+            self.edit_texto.blockSignals(False)
 
             self.barra_carga.hide()
             self.area_visor.show()
@@ -470,8 +526,7 @@ class VentanaPrincipal(QMainWindow):
             )
 
         self.pixmap_actual = pmap
-        self.visor.setPixmap(pmap)
-        self.visor.setFixedSize(pmap.size())
+        self.visor.cargar_pixmap(pmap)
 
         self.lbl_pagina.setText(
             f'Página {n} / {self.total_paginas}'
@@ -483,6 +538,7 @@ class VentanaPrincipal(QMainWindow):
     def _rect_seleccionado(self, rect: QRect):
         self.rects_display[self.pagina_actual] = rect
         self._actualizar_botones()
+        self._actualizar_resumen()
 
     def _rect_a_pdf(self, rect: QRect, num_pagina: int):
         """
@@ -509,19 +565,6 @@ class VentanaPrincipal(QMainWindow):
         self._actualizar_resumen()
 
     # ── Navegación y confirmación ─────────────────────────────────────────────
-    def confirmar_pagina(self):
-        rect = self.rects_display.get(self.pagina_actual)
-        if rect:
-            self.coords[self.pagina_actual] = self._rect_a_pdf(
-                rect, self.pagina_actual
-            )
-        self._actualizar_resumen()
-        self._avanzar()
-
-    def omitir_pagina(self):
-        self.coords.pop(self.pagina_actual, None)
-        self._avanzar()
-
     def confirmar_todas(self):
         rect = self.rects_display.get(self.pagina_actual)
         if not rect:
@@ -530,34 +573,50 @@ class VentanaPrincipal(QMainWindow):
             self.rects_display[p] = rect
             self.coords[p]        = self._rect_a_pdf(rect, p)
         self._actualizar_resumen()
-        self._iniciar_flujo_firma()
 
     def pagina_anterior(self):
         if self.pagina_actual > 1:
             self.mostrar_pagina(self.pagina_actual - 1)
 
-    def _avanzar(self):
+    def pagina_siguiente(self):
         if self.pagina_actual < self.total_paginas:
             self.mostrar_pagina(self.pagina_actual + 1)
-        else:
-            self._iniciar_flujo_firma()
+
+    def _saltar_pagina(self, n):
+        if n != self.pagina_actual:
+            self.mostrar_pagina(n)
+
+    def _texto_cambiado(self):
+        self.texto_firma = self.edit_texto.toPlainText()
+
+    def _cancelar(self):
+        self.coords        = {}
+        self.rects_display = {}
+        self.pdf_bytes     = None
+        self.area_visor.hide()
+        self.barra_carga.show()
+
+    def _listo(self):
+        # Convertir todos los rects dibujados a coordenadas PDF
+        for num, rect in self.rects_display.items():
+            self.coords[num] = self._rect_a_pdf(rect, num)
+        self._iniciar_flujo_firma()
 
     def _actualizar_botones(self):
         tiene_rect = self.pagina_actual in self.rects_display
-        self.btn_confirmar.setEnabled(tiene_rect)
         self.btn_todas.setEnabled(tiene_rect)
         self.btn_anterior.setEnabled(self.pagina_actual > 1)
+        self.btn_siguiente.setEnabled(self.pagina_actual < self.total_paginas)
 
     def _actualizar_resumen(self):
-        paginas = sorted(self.coords.keys())
+        # Mostrar todas las páginas con rect dibujado (rects_display),
+        # no solo las confirmadas (coords) — el usuario ve feedback inmediato
+        paginas = sorted(self.rects_display.keys())
         if paginas:
-            txt = '✔  Páginas con firma: ' + ', '.join(
-                f'pág. {p}' for p in paginas
-            )
-            self.lbl_resumen.setText(txt)
-            self.lbl_resumen.show()
+            etiquetas = ', '.join(str(p) for p in paginas)
+            self.lbl_resumen.setText(f'Paginas marcadas: {etiquetas}')
         else:
-            self.lbl_resumen.hide()
+            self.lbl_resumen.setText('Sin paginas marcadas')
 
     # ── Flujo de firma ────────────────────────────────────────────────────────
     def _iniciar_flujo_firma(self):
