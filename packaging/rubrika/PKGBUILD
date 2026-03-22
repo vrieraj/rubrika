@@ -38,9 +38,9 @@ optdepends=(
 )
 install=rubrika.install
 source=(
-    "rubrika-${pkgver}.tar.gz::https://github.com/tu-usuario/rubrika/archive/refs/tags/v${pkgver}.tar.gz"
+    "rubrika-${pkgver}.tar.gz::https://github.com/vrieraj/rubrika/archive/refs/tags/v${pkgver}.tar.gz"
 )
-sha256sums=('SKIP')   # actualizar con el hash real al publicar en el AUR
+sha256sums=('1845873bb5418d939c58cf22788301caf8ff958052a9f784c2a0612abccfc3f2')   # actualizar con el hash real al publicar en el AUR
 
 package() {
     cd "rubrika-${pkgver}"

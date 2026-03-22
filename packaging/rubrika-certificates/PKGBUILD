@@ -142,55 +142,86 @@ _verificar_x509() {
 }
 
 prepare() {
-    msg "Descomprimiendo ZIPs del DNIe..."
-    unzip -o ACRAIZ-DNIE2.zip
-    unzip -o ACRAIZ-SHA2.zip
-    unzip -o ACDNIE004.zip
-    unzip -o ACDNIE005.zip
-    unzip -o ACDNIE006.zip
+    # makepkg ya extrajo los ZIPs con bsdtar antes de llamar a prepare()
+    # Los archivos están en $srcdir — entramos para que las rutas sean relativas
+    cd "$srcdir"
 
     msg "Verificando huellas SHA-1 de certificados raíz (fuentes oficiales)..."
 
+    # Helper: busca un archivo por nombre (cualquier subcarpeta) y devuelve su ruta
+    _buscar() {
+        find "$srcdir" \( -type f -o -type l \) -iname "$1" | head -1
+    }
+
     # ── FNMT: certificados raíz — huella fija ──
-    _verificar_huella "AC_Raiz_FNMT-RCM_SHA256.cer" "$_SHA1_FNMT_RAIZ"          "AC Raíz FNMT-RCM"
-    _verificar_huella "AC_FNMT_Usuarios.cer"         "$_SHA1_FNMT_USUARIOS"       "AC FNMT Usuarios"
-    _verificar_huella "AC_Representacion.cer"         "$_SHA1_FNMT_REPRESENTACION" "AC Representación"
-    _verificar_huella "AC_Sector_Publico.cer"         "$_SHA1_FNMT_SECTOR_PUBLICO" "AC Sector Público"
-    _verificar_huella "AC_Raiz_FNMT-RCM_G2.cer"      "$_SHA1_FNMT_RAIZ_G2"        "AC Raíz FNMT-RCM G2"
-    _verificar_huella "AC_Usuarios_G2.cer"            "$_SHA1_FNMT_USUARIOS_G2"    "AC Usuarios G2"
-    _verificar_huella "AC_Representacion_G2.cer"      "$_SHA1_FNMT_REPRESENTACION_G2" "AC Representación G2"
-    _verificar_huella "AC_Sector_Publico_G2.cer"      "$_SHA1_FNMT_SECTOR_PUBLICO_G2" "AC Sector Público G2"
+    _verificar_huella "$(_buscar 'AC_Raiz_FNMT-RCM_SHA256.cer')" "$_SHA1_FNMT_RAIZ"             "AC Raiz FNMT-RCM"
+    _verificar_huella "$(_buscar 'AC_FNMT_Usuarios.cer')"         "$_SHA1_FNMT_USUARIOS"          "AC FNMT Usuarios"
+    _verificar_huella "$(_buscar 'AC_Representacion.cer')"        "$_SHA1_FNMT_REPRESENTACION"    "AC Representacion"
+    _verificar_huella "$(_buscar 'AC_Sector_Publico.cer')"        "$_SHA1_FNMT_SECTOR_PUBLICO"    "AC Sector Publico"
+    _verificar_huella "$(_buscar 'AC_Raiz_FNMT-RCM_G2.cer')"     "$_SHA1_FNMT_RAIZ_G2"           "AC Raiz FNMT-RCM G2"
+    _verificar_huella "$(_buscar 'AC_Usuarios_G2.cer')"           "$_SHA1_FNMT_USUARIOS_G2"       "AC Usuarios G2"
+    _verificar_huella "$(_buscar 'AC_Representacion_G2.cer')"     "$_SHA1_FNMT_REPRESENTACION_G2" "AC Representacion G2"
+    _verificar_huella "$(_buscar 'AC_Sector_Publico_G2.cer')"     "$_SHA1_FNMT_SECTOR_PUBLICO_G2" "AC Sector Publico G2"
 
     # ── DNIe: certificados raíz — huella fija ──
-    _verificar_huella "ACRAIZ-SHA2.cer"     "$_SHA1_DNIE_RAIZ"       "AC RAIZ DNIE (SHA-1)"
-    _verificar_huella "ACRAIZ-SHA2.cer"     "$_SHA1_DNIE_RAIZ_SHA256" "AC RAIZ DNIE (SHA-256)" || true
-    _verificar_huella "AC RAIZ DNIE 2.crt" "$_SHA1_DNIE_RAIZ2"      "AC RAIZ DNIE 2"
+    # ACRAIZ-SHA2 puede llamarse ACRAIZ-SHA2.cer o similar segun el ZIP
+    local _dnie_raiz
+    _dnie_raiz=$(find "$srcdir" \( -type f -o -type l \) -name 'ACRAIZ-SHA2.cer' | head -1)
+    if [[ -z "$_dnie_raiz" ]]; then
+        error "No se encontro el certificado raiz del DNIe (ACRAIZ-SHA2.cer)"
+        return 1
+    fi
+    _verificar_huella "$_dnie_raiz" "$_SHA1_DNIE_RAIZ_SHA256" "AC RAIZ DNIE (algoritmo SHA-256)"
+
+    # AC RAIZ DNIE 2
+    local _dnie_raiz2
+    _dnie_raiz2=$(find "$srcdir" \( -type f -o -type l \) -name 'AC RAIZ DNIE 2.crt' | head -1)
+    if [[ -n "$_dnie_raiz2" ]]; then
+        _verificar_huella "$_dnie_raiz2" "$_SHA1_DNIE_RAIZ2" "AC RAIZ DNIE 2"
+    fi
 
     msg "Verificando estructura X.509 de AC subordinadas del DNIe..."
-    # Los intermedios caducan y se renuevan — solo validamos que son X.509 válidos
-    _verificar_x509 "AC DNIE 004.crt" "AC DNIE 004"
-    _verificar_x509 "AC DNIE 005.crt" "AC DNIE 005"
-    _verificar_x509 "AC DNIE 006.crt" "AC DNIE 006"
+    while IFS= read -r -d '' cert; do
+        _verificar_x509 "$cert" "$(basename "$cert")"
+    done < <(find "$srcdir" \( -type f -o -type l \) -iname 'AC*DNIE*0*.crt' -print0)
 }
 
 package() {
     local destino="$pkgdir/usr/share/ca-certificates/trust-source/anchors"
     install -dm755 "$destino"
 
+    _buscar() { find "$srcdir" \( -type f -o -type l \) -iname "$1" | head -1; }
+    _instalar() {
+        local src="$1" dst="$2"
+        if [[ -n "$src" && -f "$src" ]]; then
+            install -Dm644 "$src" "$destino/$dst"
+            msg2 "Instalado: $dst"
+        else
+            warning "No encontrado: $dst (se omite)"
+        fi
+    }
+
     msg "Instalando certificados FNMT..."
-    install -Dm644 "AC_Raiz_FNMT-RCM_SHA256.cer" "$destino/FNMT_AC_Raiz.cer"
-    install -Dm644 "AC_FNMT_Usuarios.cer"          "$destino/FNMT_AC_Usuarios.cer"
-    install -Dm644 "AC_Representacion.cer"          "$destino/FNMT_AC_Representacion.cer"
-    install -Dm644 "AC_Sector_Publico.cer"          "$destino/FNMT_AC_Sector_Publico.cer"
-    install -Dm644 "AC_Raiz_FNMT-RCM_G2.cer"       "$destino/FNMT_AC_Raiz_G2.cer"
-    install -Dm644 "AC_Usuarios_G2.cer"             "$destino/FNMT_AC_Usuarios_G2.cer"
-    install -Dm644 "AC_Representacion_G2.cer"       "$destino/FNMT_AC_Representacion_G2.cer"
-    install -Dm644 "AC_Sector_Publico_G2.cer"       "$destino/FNMT_AC_Sector_Publico_G2.cer"
+    _instalar "$(_buscar 'AC_Raiz_FNMT-RCM_SHA256.cer')" "FNMT_AC_Raiz.cer"
+    _instalar "$(_buscar 'AC_FNMT_Usuarios.cer')"          "FNMT_AC_Usuarios.cer"
+    _instalar "$(_buscar 'AC_Representacion.cer')"         "FNMT_AC_Representacion.cer"
+    _instalar "$(_buscar 'AC_Sector_Publico.cer')"         "FNMT_AC_Sector_Publico.cer"
+    _instalar "$(_buscar 'AC_Raiz_FNMT-RCM_G2.cer')"      "FNMT_AC_Raiz_G2.cer"
+    _instalar "$(_buscar 'AC_Usuarios_G2.cer')"            "FNMT_AC_Usuarios_G2.cer"
+    _instalar "$(_buscar 'AC_Representacion_G2.cer')"      "FNMT_AC_Representacion_G2.cer"
+    _instalar "$(_buscar 'AC_Sector_Publico_G2.cer')"      "FNMT_AC_Sector_Publico_G2.cer"
 
     msg "Instalando certificados DNIe..."
-    install -Dm644 "ACRAIZ-SHA2.cer"     "$destino/DNIe_AC_Raiz.cer"
-    install -Dm644 "AC RAIZ DNIE 2.crt" "$destino/DNIe_AC_Raiz_2.crt"
-    install -Dm644 "AC DNIE 004.crt"    "$destino/DNIe_AC_004.crt"
-    install -Dm644 "AC DNIE 005.crt"    "$destino/DNIe_AC_005.crt"
-    install -Dm644 "AC DNIE 006.crt"    "$destino/DNIe_AC_006.crt"
+    # Raiz DNIe — buscar por nombre aproximado
+    local _r
+    _r=$(find "$srcdir" \( -type f -o -type l \) -name 'ACRAIZ-SHA2.cer' | head -1)
+    _instalar "$_r" "DNIe_AC_Raiz.cer"
+    _r=$(find "$srcdir" \( -type f -o -type l \) \( -iname '*DNIE*2.crt' -o -iname 'AC*RAIZ*DNIE*2*' \) | head -1)
+    _instalar "$_r" "DNIe_AC_Raiz_2.crt"
+    # Subordinadas DNIe
+    local i=4
+    while IFS= read -r -d '' cert; do
+        _instalar "$cert" "DNIe_AC_00${i}.crt"
+        (( i++ ))
+    done < <(find "$srcdir" \( -type f -o -type l \) -iname 'AC*DNIE*0*.crt' -print0 | sort -z)
 }
